@@ -70,6 +70,10 @@ static void default_uart_output(const char *buf, uint16_t len) {
 static inline void emit(const char *buf, uint16_t len) {
     if (s_output) {
         s_output(buf, len);
+#if STM_LOG_AUTO_NEWLINE
+        static const char s_nl[] = "\r\n";
+        s_output(s_nl, sizeof(s_nl) - 1);
+#endif
     }
 }
 
@@ -92,7 +96,7 @@ static void early_write(const char *buf, uint16_t len) {
 static void early_flush(void) {
 #if STM_LOG_EARLY_BUFFER_SIZE > 0
     if (s_early_pos > 0) {
-        s_output(s_early_buf, s_early_pos);
+        emit(s_early_buf, s_early_pos);
         s_early_pos = 0;
     }
 #endif

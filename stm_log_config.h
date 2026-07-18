@@ -23,5 +23,6 @@
                                                                           0 = 禁用早期 log（stm_log_init 前 LOGx 直接丢弃） */
 #define STM_LOG_USE_MUTEX           0                                  /*!< 1: 用 FreeRTOS recursive mutex 保护共享状态（多任务项目）；
                                                                           0: 裸机 / 单任务（零开销） */
+#define STM_LOG_AUTO_NEWLINE        1                                  /*!< 1: emit() 末尾自动追 \r\n；0: 关闭（fmt 自己加 \n 或后端自带换行） */
 
 #endif /* STM_LOG_CONFIG_H */
