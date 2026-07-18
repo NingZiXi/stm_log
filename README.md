@@ -53,9 +53,10 @@ E (5678) main: uart tx failed
 void                 stm_log_init(UART_HandleTypeDef *huart, stm_log_level_t level);
 void                 stm_log_set_level(stm_log_level_t level);
 
-/* per-tag 级别（NONE = 删除该条目） */
+/* per-tag 级别（NONE = 静音该 tag 所有输出） */
 void                 stm_log_set_tag_level(const char *tag, stm_log_level_t level);
 stm_log_level_t      stm_log_get_tag_level(const char *tag);
+void                 stm_log_unset_tag_level(const char *tag);    /* 删除 per-tag 配置 → 回退全局 */
 
 /* 输出 callback（NULL = 恢复默认 UART） */
 void                 stm_log_set_output(stm_log_output_fn output);
@@ -231,6 +232,7 @@ endif()
 | `STM_LOG_INCLUDE_FILE_LINE`   | 0                    | 1: LOGx 加 `[file:line]`；0: 关闭 |
 | `STM_LOG_EARLY_BUFFER_SIZE`   | 1024                 | 早期 log ring buffer 字节数；0 = 禁用 |
 | `STM_LOG_USE_MUTEX`           | 0                    | 1: FreeRTOS recursive mutex 保护共享状态（多任务）；0: 裸机 / 单任务 |
+| `STM_LOG_AUTO_NEWLINE`        | 1                    | 1: emit() 末尾自动追 `\r\n`；0: 关闭（fmt 自加 `\n` 或后端自带换行） |
 
 ## 约束
 
