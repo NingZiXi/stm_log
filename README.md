@@ -163,14 +163,46 @@ LOGx 预处理后变 `do {} while (0)`，vsnprintf 调用 + 格式字符串全�
 
 ## CMake 集成
 
+### 方式 A：FetchContent（推荐，联网环境）
+
 工程根 `CMakeLists.txt`：
 
 ```cmake
-add_subdirectory(stm_log)
+include(FetchContent)
+
+FetchContent_Declare(
+    stm_log
+    GIT_REPOSITORY https://github.com/NingZiXi/stm_log.git
+    GIT_TAG        v2.2.0
+)
+FetchContent_MakeAvailable(stm_log)
+
 target_link_libraries(${YOUR_TARGET} PRIVATE stm_log)
 target_link_libraries(${YOUR_TARGET} PRIVATE stm32cubemx)            /* 提供 HAL */
+```
 
-/* Release build 关 log */
+首次 build 自动 clone 到 `<build>/_deps/stm_log-src/`，版本锁定 `v2.2.0`。离线 / 代理环境不适用。
+
+### 方式 B：手动 git clone（离线 / 代理环境）
+
+```bash
+mkdir -p Lib
+git clone https://github.com/NingZiXi/stm_log Lib/stm_log
+cd Lib/stm_log && git checkout v2.2.0
+```
+
+工程根 `CMakeLists.txt`：
+
+```cmake
+add_subdirectory(Lib/stm_log)
+
+target_link_libraries(${YOUR_TARGET} PRIVATE stm_log)
+target_link_libraries(${YOUR_TARGET} PRIVATE stm32cubemx)            /* 提供 HAL */
+```
+
+### Release build 关 log
+
+```cmake
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_definitions(${YOUR_TARGET} PRIVATE STM_LOG_ENABLED=0)
 endif()
