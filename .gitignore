@@ -1,0 +1,12 @@
+# IDE / 编辑器本地配置（不入库）
+.mcp.json
+.vscode/
+.settings/
+
+# 构建产物
+build/
+*.o
+*.elf
+*.hex
+*.bin
+*.map
