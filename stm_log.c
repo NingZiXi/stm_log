@@ -242,7 +242,7 @@ stm_log_level_t stm_log_get_tag_level(const char *tag) {
  * @note  热路径，不加锁；容忍极小概率读到 s_tags 撕裂值（漏一条 log）
  */
 void stm_log(stm_log_level_t level, const char *tag, const char *fmt, ...) {
-    if (level < resolve_level(tag)) {
+    if (level > resolve_level(tag)) {
         return;
     }
 
@@ -269,7 +269,7 @@ void stm_log(stm_log_level_t level, const char *tag, const char *fmt, ...) {
  */
 void stm_log_fl(stm_log_level_t level, const char *file, int line,
                 const char *tag, const char *fmt, ...) {
-    if (level < resolve_level(tag)) {
+    if (level > resolve_level(tag)) {
         return;
     }
 
@@ -296,7 +296,7 @@ void stm_log_fl(stm_log_level_t level, const char *file, int line,
  */
 void stm_log_hex(stm_log_level_t level, const char *tag,
                  const void *buf, uint16_t len, uint16_t bytes_per_line) {
-    if (level < resolve_level(tag) || !bytes_per_line) {
+    if (level > resolve_level(tag) || !bytes_per_line) {
         return;
     }
 
