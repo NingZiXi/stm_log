@@ -163,6 +163,11 @@ LOGx 预处理后变 `do {} while (0)`，vsnprintf 调用 + 格式字符串全�
 
 ## CMake 集成
 
+仓库地址（GitHub / Gitee 二选一，内容与 tag 完全同步）：
+
+- GitHub：`https://github.com/NingZiXi/stm_log.git`
+- Gitee：`https://gitee.com/nzxhg/stm_log.git`
+
 ### 方式 A：FetchContent（推荐，联网环境）
 
 工程根 `CMakeLists.txt`：
@@ -172,7 +177,9 @@ include(FetchContent)
 
 FetchContent_Declare(
     stm_log
+    # 任选一个仓库地址（GitHub / Gitee 内容同步）
     GIT_REPOSITORY https://github.com/NingZiXi/stm_log.git
+    # GIT_REPOSITORY https://gitee.com/nzxhg/stm_log.git           /* 国内 / 代理环境 */
     GIT_TAG        v2.2.0
 )
 FetchContent_MakeAvailable(stm_log)
@@ -186,7 +193,11 @@ target_link_libraries(${YOUR_TARGET} stm_log)                        /* stm_log 
 
 ```bash
 mkdir -p Lib
+
+# 任选一个仓库地址（GitHub / Gitee 内容同步）
 git clone https://github.com/NingZiXi/stm_log Lib/stm_log
+# git clone https://gitee.com/nzxhg/stm_log Lib/stm_log            /* 国内 / 代理环境 */
+
 cd Lib/stm_log && git checkout v2.2.0
 ```
 
