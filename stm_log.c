@@ -212,7 +212,9 @@ void stm_log_set_output(stm_log_output_fn output) {
 }
 
 /**
- * @brief 注册 / 更新 / 删除某 tag 的 per-tag 级别
+ * @brief 注册 / 更新某 tag 的级别（NONE = 静音该 tag）
+ *
+ * @note  NONE 现在持久化到 per-tag 表，占一条名额；如需"删除回退全局"用 unset
  */
 void stm_log_set_tag_level(const char *tag, stm_log_level_t level) {
     if (!tag) {
@@ -222,23 +224,38 @@ void stm_log_set_tag_level(const char *tag, stm_log_level_t level) {
     LOCK();
     for (uint8_t i = 0; i < s_tag_count; i++) {
         if (strcmp(s_tags[i].tag, tag) == 0) {
-            if (level == STM_LOG_LVL_NONE) {
-                for (uint8_t j = i; j + 1u < s_tag_count; j++) {
-                    s_tags[j] = s_tags[j + 1u];
-                }
-                s_tag_count--;
-            } else {
-                s_tags[i].level = level;
-            }
+            s_tags[i].level = level;
             UNLOCK();
             return;
         }
     }
 
-    if (level != STM_LOG_LVL_NONE && s_tag_count < STM_LOG_MAX_TAGS) {
+    if (s_tag_count < STM_LOG_MAX_TAGS) {
         s_tags[s_tag_count].tag   = tag;
         s_tags[s_tag_count].level = level;
         s_tag_count++;
+    }
+    UNLOCK();
+}
+
+/**
+ * @brief 删除某 tag 的 per-tag 配置（让该 tag 回退到全局默认）
+ */
+void stm_log_unset_tag_level(const char *tag) {
+    if (!tag) {
+        return;
+    }
+
+    LOCK();
+    for (uint8_t i = 0; i < s_tag_count; i++) {
+        if (strcmp(s_tags[i].tag, tag) == 0) {
+            for (uint8_t j = i; j + 1u < s_tag_count; j++) {
+                s_tags[j] = s_tags[j + 1u];
+            }
+            s_tag_count--;
+            UNLOCK();
+            return;
+        }
     }
     UNLOCK();
 }

@@ -78,9 +78,14 @@ void stm_log_init(UART_HandleTypeDef *huart, stm_log_level_t level);
 void stm_log_set_level(stm_log_level_t level);
 
 /**
- * @brief 注册 / 更新 / 删除某 tag 的 per-tag 级别（STM_LOG_LVL_NONE = 删除）
+ * @brief 注册 / 更新某 tag 的级别（STM_LOG_LVL_NONE = 静音该 tag 所有输出）
  */
 void stm_log_set_tag_level(const char *tag, stm_log_level_t level);
+
+/**
+ * @brief 删除某 tag 的 per-tag 配置（让该 tag 回退到全局默认）
+ */
+void stm_log_unset_tag_level(const char *tag);
 
 /**
  * @brief 查询某 tag 当前生效级别
