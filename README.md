@@ -177,8 +177,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(stm_log)
 
-target_link_libraries(${YOUR_TARGET} PRIVATE stm_log)
-target_link_libraries(${YOUR_TARGET} PRIVATE stm32cubemx)            /* 提供 HAL */
+target_link_libraries(${YOUR_TARGET} stm_log)                        /* stm_log 自动传递 stm32cubemx */
 ```
 
 首次 build 自动 clone 到 `<build>/_deps/stm_log-src/`，版本锁定 `v2.2.0`。离线 / 代理环境不适用。
@@ -196,8 +195,7 @@ cd Lib/stm_log && git checkout v2.2.0
 ```cmake
 add_subdirectory(Lib/stm_log)
 
-target_link_libraries(${YOUR_TARGET} PRIVATE stm_log)
-target_link_libraries(${YOUR_TARGET} PRIVATE stm32cubemx)            /* 提供 HAL */
+target_link_libraries(${YOUR_TARGET} stm_log)                        /* stm_log 自动传递 stm32cubemx */
 ```
 
 ### Release build 关 log

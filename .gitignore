@@ -2,7 +2,7 @@
 .mcp.json
 .vscode/
 .settings/
-
+.claude/
 # 构建产物
 build/
 *.o
