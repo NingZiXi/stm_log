@@ -69,6 +69,16 @@ static void default_uart_output(const char *buf, uint16_t len) {
  */
 static inline void emit(const char *buf, uint16_t len) {
     if (s_output) {
+#if STM_LOG_AUTO_NEWLINE
+        char combined[STM_LOG_BUFFER_SIZE + 2];
+        if (len <= STM_LOG_BUFFER_SIZE) {
+            memcpy(combined, buf, len);
+            combined[len]     = '\r';
+            combined[len + 1] = '\n';
+            s_output(combined, (uint16_t)(len + 2));
+            return;
+        }
+#endif
         s_output(buf, len);
 #if STM_LOG_AUTO_NEWLINE
         static const char s_nl[] = "\r\n";
