@@ -3,7 +3,7 @@
  * @author  宁子希 (1589326497@qq.com)
  * @brief   STM32 HAL 专用分级日志组件 — 5 级 / per-tag / 自定义输出 / HEX / 早期 log
  * @date    2026-07-18
- * @version 2.1.0
+ * @version 2.3.0
  *
  * @copyright Copyright (c) 2026
  *
@@ -67,10 +67,24 @@ typedef void (*stm_log_output_fn)(const char *buf, uint16_t len);
 /**
  * @brief 初始化日志组件（默认 UART 输出）
  *
- * @param  huart  指向已初始化的 UART_HandleTypeDef（如 &huart1）
+ * @param  huart  指向已初始化的 UART_HandleTypeDef（如 &huart1）；可传 NULL 跳过 UART 绑定
  * @param  level  全局默认级别（未注册的 tag 走此 level）
+ *
+ * @note  v2.3.0 起 `huart` 允许 NULL：RTT/SWO/USB CDC 等非 UART 后端可传 NULL 避免虚假 UART 依赖。
+ *        推荐非 UART 后端改用 `stm_log_init_output()`，语义更清晰。
  */
 void stm_log_init(UART_HandleTypeDef *huart, stm_log_level_t level);
+
+/**
+ * @brief 一步完成 init + set_output：设全局级别 + 装自定义 callback + flush 早期 ring buffer
+ *
+ * @param  output  自定义输出 callback（NULL = 恢复默认 UART 输出）
+ * @param  level   全局默认级别
+ *
+ * @note  推荐用于 RTT / SWO / USB CDC 等非 UART 后端。
+ *        与 `stm_log_init()` 等价但跳过 UART 绑定；与 `stm_log_set_output()` 等价但同时设 level + flush。
+ */
+void stm_log_init_output(stm_log_output_fn output, stm_log_level_t level);
 
 /**
  * @brief 切换全局默认级别（不影响 per-tag 设置）

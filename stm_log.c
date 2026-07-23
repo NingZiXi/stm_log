@@ -4,7 +4,7 @@
  * @brief   STM32 HAL 专用分级日志组件实现
  *         （含 per-tag / 可选 file:line / 自定义输出 / HEX / 早期 log ring buffer / 可选 FreeRTOS mutex）
  * @date    2026-07-18
- * @version 2.2.0
+ * @version 2.3.0
  *
  * @copyright Copyright (c) 2026
  */
@@ -199,6 +199,25 @@ void stm_log_set_level(stm_log_level_t level) {
     LOCK();
     s_level = level;
     UNLOCK();
+}
+
+/**
+ * @brief 一步完成 init + set_output：装 callback + 设 level + flush 早期 buffer
+ *
+ * @note  STM_LOG_USE_MUTEX=1 时本函数末尾创建 FreeRTOS recursive mutex，
+ *        须在 scheduler 启动后调用。等价于 `stm_log_init(NULL, level)` + `stm_log_set_output(output)`。
+ */
+void stm_log_init_output(stm_log_output_fn output, stm_log_level_t level) {
+#if STM_LOG_USE_MUTEX
+    if (!s_mutex) {
+        s_mutex = xSemaphoreCreateRecursiveMutex();
+    }
+#endif
+    LOCK();
+    s_output = output ? output : default_uart_output;
+    s_level  = level;
+    UNLOCK();
+    early_flush();
 }
 
 /**

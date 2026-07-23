@@ -51,6 +51,7 @@ E (5678) main: uart tx failed
 ```c
 /* 初始化 + 级别 */
 void                 stm_log_init(UART_HandleTypeDef *huart, stm_log_level_t level);
+void                 stm_log_init_output(stm_log_output_fn output, stm_log_level_t level);  /* v2.3.0+，推荐用于非 UART 后端 */
 void                 stm_log_set_level(stm_log_level_t level);
 
 /* per-tag 级别（NONE = 静音该 tag 所有输出） */
@@ -92,8 +93,8 @@ static void rtt_output(const char *buf, uint16_t len) {
 }
 
 SEGGER_RTT_Init();
-stm_log_init(&huart1, STM_LOG_LVL_INFO);               /* 默认 UART */
-stm_log_set_output(rtt_output);                         /* 切到 RTT */
+stm_log_init_output(rtt_output, STM_LOG_LVL_INFO);     /* v2.3.0+：一步完成 init + 切 RTT */
+/* 旧写法仍可用：stm_log_init(NULL, STM_LOG_LVL_INFO); stm_log_set_output(rtt_output); */
 ```
 
 ### 切到 SWO（ST-Link + VSCode Cortex-Debug）
@@ -105,8 +106,7 @@ static void swo_output(const char *buf, uint16_t len) {
     }
 }
 
-stm_log_init(&huart1, STM_LOG_LVL_INFO);
-stm_log_set_output(swo_output);
+stm_log_init_output(swo_output, STM_LOG_LVL_INFO);     /* v2.3.0+ */
 ```
 
 > CubeMX 要配 PB3 = `SYS_SWO`，Debug 选 `Trace Asynchronous Sw`。
