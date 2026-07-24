@@ -12,6 +12,9 @@
  *          - 运行时可切到 RTT / SWO / 自定义后端
  *          - 支持编译期全关（STM_LOG_ENABLED=0）以用于量产 release 固件
  *
+ *   HAL 头文件由使用方通过 STM_LOG_HAL_HEADER 指定（默认 stm32f4xx_hal.h），
+ *   其它 STM32 家族通过编译选项覆盖。详见 README.md「编译期配置」。
+ *
  *   用法见 README.md，编译期选项见 stm_log_config.h。
  */
 
@@ -21,7 +24,11 @@
 #include <stdint.h>
 #include <stdarg.h>
 
-#include "stm32f4xx_hal.h"                                            /*!< UART_HandleTypeDef / HAL_GetTick */
+#ifndef STM_LOG_HAL_HEADER
+#define STM_LOG_HAL_HEADER "stm32f4xx_hal.h"                          /*!< HAL 头文件，默认兼容 STM32F4 */
+#endif
+#include STM_LOG_HAL_HEADER
+
 #include "stm_log_config.h"
 
 #ifdef STM_LOG_INCLUDE_FILE_LINE

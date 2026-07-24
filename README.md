@@ -218,9 +218,67 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
 endif()
 ```
 
+### 非标准 CubeMX 工程（关掉自动 stm32cubemx 链接）
+
+默认情况下 `stm_log` 会自动 link `stm32cubemx` target。如果你的工程 HAL target 命名不同、或
+有自定义 HAL 兼容层，关掉自动链接并自己 link：
+
+```cmake
+set(STM_LOG_LINK_CUBEMX OFF CACHE BOOL "" FORCE)
+add_subdirectory(Lib/stm_log)
+target_link_libraries(${YOUR_TARGET} stm_log your_hal_target)
+```
+
 ## 编译期配置
 
-`stm_log_config.h`：
+### `STM_LOG_HAL_HEADER` — STM32 HAL 头文件
+
+`stm_log` 依赖 STM32 HAL 提供 `UART_HandleTypeDef` / `HAL_UART_Transmit` / `HAL_GetTick`。
+不同 STM32 系列的 HAL 头文件名不同，工程中通过 `STM_LOG_HAL_HEADER` 指定：
+
+| STM32 家族 | `STM_LOG_HAL_HEADER` |
+|---|---|
+| STM32F0  | `"stm32f0xx_hal.h"`  |
+| STM32F1  | `"stm32f1xx_hal.h"`  |
+| STM32F2  | `"stm32f2xx_hal.h"`  |
+| STM32F3  | `"stm32f3xx_hal.h"`  |
+| STM32F4  | `"stm32f4xx_hal.h"`  |  ← 默认
+| STM32F7  | `"stm32f7xx_hal.h"`  |
+| STM32G0  | `"stm32g0xx_hal.h"`  |
+| STM32G4  | `"stm32g4xx_hal.h"`  |
+| STM32H5  | `"stm32h5xx_hal.h"`  |
+| STM32H7  | `"stm32h7xx_hal.h"`  |
+| STM32L0  | `"stm32l0xx_hal.h"`  |
+| STM32L1  | `"stm32l1xx_hal.h"`  |
+| STM32L4  | `"stm32l4xx_hal.h"`  |
+| STM32L5  | `"stm32l5xx_hal.h"`  |
+| STM32U5  | `"stm32u5xx_hal.h"`  |
+| STM32WB  | `"stm32wbxx_hal.h"`  |
+| STM32WL  | `"stm32wlxx_hal.h"`  |
+| STM32C0  | `"stm32c0xx_hal.h"`  |
+
+工程 CMake 中通过 `target_compile_definitions` 注入（注意 CMake 转义引号）：
+
+```cmake
+# STM32G0 工程示例
+target_compile_definitions(stm_log PUBLIC
+    "STM_LOG_HAL_HEADER=\"stm32g0xx_hal.h\""
+)
+```
+
+或者用 `set` + `FetchContent_MakeAvailable` 之前设定：
+
+```cmake
+set(STM_LOG_HAL_HEADER "stm32g0xx_hal.h" CACHE STRING "" FORCE)
+FetchContent_MakeAvailable(stm_log)
+```
+
+> 为什么要转义引号：`STM_LOG_HAL_HEADER` 在头文件中通过 `#include STM_LOG_HAL_HEADER`
+> 展开为 `#include "stm32g0xx_hal.h"`，所以宏的值必须是带引号的字符串字面量。
+> CMake 中 `target_compile_definitions` 会剥一层引号，所以传入 `"STM_LOG_HAL_HEADER=\"stm32g0xx_hal.h\""`。
+> 生成的编译命令里宏的实际定义为 `STM_LOG_HAL_HEADER="stm32g0xx_hal.h"`。
+
+### `stm_log_config.h`
 
 | 宏 | 默认 | 含义 |
 |---|---|---|
@@ -242,7 +300,8 @@ endif()
 - 单 UART 默认绑定；通过 `stm_log_set_output()` 运行时切换
 - per-tag 表大小由 `STM_LOG_MAX_TAGS` 编译期固定
 - 早期 log ring buffer 由 `STM_LOG_EARLY_BUFFER_SIZE` 编译期固定
-- 依赖 STM32 HAL（`stm32f4xx_hal.h` / `HAL_UART_Transmit` / `HAL_GetTick`）
+- 依赖 STM32 HAL（通过 `STM_LOG_HAL_HEADER` 指定；默认 `stm32f4xx_hal.h`）
+  需要 `HAL_UART_Transmit` / `HAL_GetTick`
 
 ## License
 
