@@ -13,7 +13,10 @@
 #ifndef STM_LOG_CONFIG_H
 #define STM_LOG_CONFIG_H
 
-#define STM_LOG_ENABLED             1                                  /*!< 1: LOGx 正常工作；0: 所有 LOGx → do{}while(0)（Release / 量产用） */
+#ifndef STM_LOG_ENABLED
+#define STM_LOG_ENABLED             1                                  /*!< 1: LOGx 正常工作；0: 所有 LOGx → do{}while(0)（Release / 量产用）。
+                                                                          可被外部 target_compile_definitions 覆盖（不重新定义，仅当未定义时取默认值）。 */
+#endif
 #define STM_LOG_BUFFER_SIZE         128                                /*!< 单条日志最大字节数（vsnprintf 截断） */
 #define STM_LOG_USE_COLORS          1                                  /*!< 1: ANSI 颜色（红/黄/绿/灰/青）；0: 关闭 */
 #define STM_LOG_LEVEL_DEFAULT       STM_LOG_LVL_INFO                   /*!< stm_log_init 之前 LOGx 默认级别 */
