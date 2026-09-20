@@ -138,6 +138,11 @@ static int format_with_prefix(char *buf, size_t buf_size, stm_log_level_t level,
                               const char *fmt, va_list ap) {
     int n = 0;
 
+#if !STM_LOG_INCLUDE_FILE_LINE
+    (void)file;
+    (void)line;
+#endif
+
 #if STM_LOG_USE_COLORS
     n += snprintf(buf + n, buf_size - n, "%s", s_lvl_color[level]);
 #endif
