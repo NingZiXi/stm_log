@@ -85,6 +85,29 @@ LOGI(TAG, "boot");
 
 ### 切到 RTT（J-Link + VSCode Cortex-Debug）
 
+在 `add_subdirectory(stm_log)` 前启用 RTT 依赖，应用只需链接 `stm_log`：
+
+```cmake
+set(STM_LOG_WITH_RTT ON CACHE BOOL "")
+add_subdirectory(Lib/stm_log)
+target_compile_definitions(stm_log PUBLIC STM_LOG_HAL_HEADER="stm32h7xx_hal.h")
+target_link_libraries(your_firmware PRIVATE stm_log)
+```
+
+示例为 H7，其他系列请改为对应 HAL 头文件。RTT 默认关闭，UART/自定义后端不需要下载它。启用后按顺序使用已有 `segger_rtt` target、`STM_LOG_RTT_SOURCE_DIR` 指定的源码、同级 `segger_rtt/` 或 `RTT/`；都不存在时用 FetchContent 下载。已有 target 的源码与配置由应用负责。
+
+远程为 [GitHub RTT](https://github.com/NingZiXi/RTT)，固定提交 `d6075232fb5a7127c36548f19eb8cd5befee69e7`，不会跟随 main 自动升级。也可在添加组件前切换 [Gitee RTT](https://gitee.com/nzxhg/RTT)：
+
+```cmake
+set(STM_LOG_RTT_GIT_REPOSITORY "https://gitee.com/nzxhg/RTT.git" CACHE STRING "")
+```
+
+首次自动下载需要 Git 和网络；`STM_LOG_RTT_FETCH=OFF` 可禁止自动下载，缺少本地依赖会明确报错。离线可设置 `STM_LOG_RTT_SOURCE_DIR` 为 RTT 仓库根目录的绝对路径；自动解析也支持标准 `FETCHCONTENT_SOURCE_DIR_SEGGER_RTT` 覆盖。
+
+组件自动编译 `RTT/SEGGER_RTT.c` 并传递头文件及链接依赖，不添加 printf 重定向、示例或可选汇编文件。默认使用仓库的 `Config/SEGGER_RTT_Conf.h`；可通过 `STM_LOG_RTT_CONFIG_DIR` 指定包含自定义配置头的目录。RTT 源码保留其自身许可证。
+
+启用依赖只完成构建接入，应用仍须初始化 RTT 并绑定输出回调：
+
 ```c
 #include "SEGGER_RTT.h"
 
