@@ -1,39 +1,16 @@
-/**
- * @file    stm_log.h
- * @author  宁子希 (1589326497@qq.com)
- * @brief   STM32 HAL 专用分级日志组件 — 5 级 / per-tag / 自定义输出 / HEX / 早期 log
- * @date    2026-07-18
- * @version 2.3.0
- *
- * @copyright Copyright (c) 2026
- *
- * @details 专为 STM32 HAL UART 优化：
- *          - 默认阻塞 UART 输出
- *          - 运行时可切到 RTT / SWO / 自定义后端
- *          - 支持编译期全关（STM_LOG_ENABLED=0）以用于量产 release 固件
- *
- *   HAL 头文件由使用方通过 STM_LOG_HAL_HEADER 指定（默认 stm32f4xx_hal.h），
- *   其它 STM32 家族通过编译选项覆盖。详见 README.md「编译期配置」。
- *
- *   用法见 README.md，编译期选项见 stm_log_config.h。
+/** @file stm_log.h
+ *  @brief 平台无关日志：分级、tag、输出回调、时间戳和 HEX。
+ *  @copyright Copyright (c) 2026
  */
-
 #ifndef STM_LOG_H
 #define STM_LOG_H
 
 #include <stdint.h>
 #include <stdarg.h>
 
-#ifndef STM_LOG_HAL_HEADER
-#define STM_LOG_HAL_HEADER "stm32f4xx_hal.h"                          /*!< HAL 头文件，默认兼容 STM32F4 */
-#endif
-#include STM_LOG_HAL_HEADER
 
 #include "stm_log_config.h"
 
-#ifdef STM_LOG_INCLUDE_FILE_LINE
-#include <string.h>                                                   /*!< stm_log_basename() 用 strrchr */
-#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -64,34 +41,28 @@ typedef struct {
 /**
  * @brief 自定义输出回调签名 — 用户实现后通过 stm_log_set_output() 注入
  *
- * @param  buf  已格式化好的整条 log 字符串（不含 \\r\\n，由 callback 自行决定）
- * @param  len  buf 长度
+ * @param  buf  日志字节；按 STM_LOG_AUTO_NEWLINE 决定是否包含 CRLF，不保证 NUL 结尾。
+ * @param  len  有效字节数；回调必须在返回前发送完成或复制，不得保存栈指针。
  */
 typedef void (*stm_log_output_fn)(const char *buf, uint16_t len);
 
 /* ─── 公共 API ─── */
 
 /**
- * @brief 初始化日志组件（默认 UART 输出）
- *
- * @param  huart  指向已初始化的 UART_HandleTypeDef（如 &huart1）；可传 NULL 跳过 UART 绑定
- * @param  level  全局默认级别（未注册的 tag 走此 level）
- *
- * @note  v2.3.0 起 `huart` 允许 NULL：RTT/SWO/USB CDC 等非 UART 后端可传 NULL 避免虚假 UART 依赖。
- *        推荐非 UART 后端改用 `stm_log_init_output()`，语义更清晰。
- */
-void stm_log_init(UART_HandleTypeDef *huart, stm_log_level_t level);
-
-/**
  * @brief 一步完成 init + set_output：设全局级别 + 装自定义 callback + flush 早期 ring buffer
  *
- * @param  output  自定义输出 callback（NULL = 恢复默认 UART 输出）
+ * @param  output  自定义输出 callback（NULL = 暂停输出，后续日志按早期缓冲策略处理）
  * @param  level   全局默认级别
  *
- * @note  推荐用于 RTT / SWO / USB CDC 等非 UART 后端。
- *        与 `stm_log_init()` 等价但跳过 UART 绑定；与 `stm_log_set_output()` 等价但同时设 level + flush。
+ * @note UART、RTT、SWO 使用同一个回调接口；不初始化外设，不内置默认后端。
+ *       只在单调用者任务/主循环使用；不可在 ISR 或输出/时钟回调重入。
  */
 void stm_log_init_output(stm_log_output_fn output, stm_log_level_t level);
+
+/** 毫秒时钟回调；必须立即返回，不得重入日志。允许 uint32_t 回绕。 */
+typedef uint32_t (*stm_log_tick_fn)(void);
+/** 设置时间来源；NULL 表示时间戳为 0。建议在 init_output 前设置。 */
+void stm_log_set_tick(stm_log_tick_fn tick);
 
 /**
  * @brief 切换全局默认级别（不影响 per-tag 设置）
@@ -100,6 +71,7 @@ void stm_log_set_level(stm_log_level_t level);
 
 /**
  * @brief 注册 / 更新某 tag 的级别（STM_LOG_LVL_NONE = 静音该 tag 所有输出）
+ * @note tag 字符串须保持有效至 unset；表满时忽略新增项，已有项可更新。
  */
 void stm_log_set_tag_level(const char *tag, stm_log_level_t level);
 
@@ -116,7 +88,7 @@ void stm_log_unset_tag_level(const char *tag);
 stm_log_level_t stm_log_get_tag_level(const char *tag);
 
 /**
- * @brief 运行时切换输出 callback（NULL = 恢复默认 UART）
+ * @brief 运行时切换输出 callback（NULL = 暂停输出）
  *
  * @code
  *   static void rtt_output(const char *buf, uint16_t len) {

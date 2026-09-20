@@ -1,331 +1,150 @@
 # stm_log
 
-STM32 HAL 专用分级日志组件。单文件、可静态库集成。
+v3.0.0：平台无关的分级日志组件。核心只依赖标准 C，不包含 HAL/CMSIS 头文件，不初始化 UART，
+默认不链接 CubeMX、RTT 或 RTOS。UART、RTT、SWO、文件都通过同一个输出回调接入。
 
----
+保留五级日志、tag 过滤、HEX、颜色、可选文件行号、早期缓冲和总开关。
+默认不用动态内存。旧版 UART 初始化接口已移除，迁移方法见下文。
 
-## 特性
+## 最小用法
 
-- 5 级（VERBOSE / DEBUG / INFO / WARN / ERROR）+ NONE 关闭
-- **per-tag 级别控制**（运行时）
-- **可选 `[file:line]`** 输出（编译期开关）
-- **自定义输出 callback**（切到 RTT / SWO / USB CDC / 文件…）
-- **HEX buffer 打印**（`LOG_HEX` / `LOG_HEXD`）
-- **早期 log + 自动 flush**（`stm_log_init()` 之前的 LOGx 进 ring buffer）
-- **编译期全关**（`STM_LOG_ENABLED=0`，用于量产 release）
-- **FreeRTOS 多任务安全**（编译期开关 `STM_LOG_USE_MUTEX=1`，裸机项目零开销）
-- 时间戳自动取 `HAL_GetTick()`
-- 可选 ANSI 颜色
-
-## Quickstart
+完整可运行示例见 [example/main.c](example/main.c)：`main()` → `board_init()` → 日志。
+主机示例使用 stdout；设备只需替换输出和毫秒时钟，不需要改库或新增 HAL 头文件宏。
 
 ```c
 #include "stm_log.h"
 
-static const char *TAG = "main";
+// 这两个函数由应用提供；output 必须在返回前发送完成或复制数据。
+static void output(const char *data, uint16_t len);
+static uint32_t millis(void);
 
-int main(void) {
-    HAL_Init();
-    SystemClock_Config();
-    MX_USART1_UART_Init();
-
-    stm_log_init(&huart1, STM_LOG_LVL_INFO);            /* 绑定 UART + 全局级别 */
-    stm_log_set_tag_level("wifi", STM_LOG_LVL_WARN);    /* wifi tag 只看 WARN+ */
-
-    LOGI(TAG, "boot, heap=%u", xPortGetFreeHeapSize());
-    LOGE(TAG, "uart tx failed");
+void board_init(void)
+{
+    // 先完成板级时钟和输出外设初始化。
+    stm_log_set_tick(millis);  // 可选；不设置时日志时间戳为 0。
+    stm_log_init_output(output, STM_LOG_LVL_INFO);
 }
 ```
 
-输出示例：
+输出回调按 `len` 使用数据，不保证 NUL 结尾，也不能保存回调收到的临时指针。
+默认已附加 CRLF，无需再次加换行。时间戳回调须快速返回，可回绕，不得重入日志。
 
-```
-I (1234) main: boot, heap=12345
-E (5678) main: uart tx failed
-```
+## UART 与 RTT 接入
 
-颜色：ERROR=红 / WARN=黄 / INFO=绿 / DEBUG=灰 / VERBOSE=青
-
-## API 速查
+UART 仍然可以使用，但 HAL 只出现在应用中：
 
 ```c
-/* 初始化 + 级别 */
-void                 stm_log_init(UART_HandleTypeDef *huart, stm_log_level_t level);
-void                 stm_log_init_output(stm_log_output_fn output, stm_log_level_t level);  /* v2.3.0+，推荐用于非 UART 后端 */
-void                 stm_log_set_level(stm_log_level_t level);
+#include "main.h"      // 本应用选择 MCU/HAL，日志库不包含它。
+#include "stm_log.h"
 
-/* per-tag 级别（NONE = 静音该 tag 所有输出） */
-void                 stm_log_set_tag_level(const char *tag, stm_log_level_t level);
-stm_log_level_t      stm_log_get_tag_level(const char *tag);
-void                 stm_log_unset_tag_level(const char *tag);    /* 删除 per-tag 配置 → 回退全局 */
-
-/* 输出 callback（NULL = 恢复默认 UART） */
-void                 stm_log_set_output(stm_log_output_fn output);
-
-/* 日志宏 */
-LOGV(tag, fmt, ...)                                     /* VERBOSE */
-LOGD(tag, fmt, ...)                                     /* DEBUG   */
-LOGI(tag, fmt, ...)                                     /* INFO    */
-LOGW(tag, fmt, ...)                                     /* WARN    */
-LOGE(tag, fmt, ...)                                     /* ERROR   */
-
-/* HEX */
-LOG_HEX(tag, buf, len)                                  /* INFO 级，16 字节/行 */
-LOG_HEXD(tag, buf, len)                                 /* DEBUG 级，16 字节/行 */
-```
-
-## 用法示例
-
-### 默认 UART 输出
-
-```c
-stm_log_init(&huart1, STM_LOG_LVL_INFO);
-LOGI(TAG, "boot");
-```
-
-### 切到 RTT（J-Link + VSCode Cortex-Debug）
-
-在 `add_subdirectory(stm_log)` 前启用 RTT 依赖，应用只需链接 `stm_log`：
-
-```cmake
-set(STM_LOG_WITH_RTT ON CACHE BOOL "")
-add_subdirectory(Lib/stm_log)
-target_compile_definitions(stm_log PUBLIC STM_LOG_HAL_HEADER="stm32h7xx_hal.h")
-target_link_libraries(your_firmware PRIVATE stm_log)
-```
-
-示例为 H7，其他系列请改为对应 HAL 头文件。RTT 默认关闭，UART/自定义后端不需要下载它。启用后按顺序使用已有 `segger_rtt` target、`STM_LOG_RTT_SOURCE_DIR` 指定的源码、同级 `segger_rtt/` 或 `RTT/`；都不存在时用 FetchContent 下载。已有 target 的源码与配置由应用负责。
-
-远程为 [GitHub RTT](https://github.com/NingZiXi/RTT)，固定提交 `d6075232fb5a7127c36548f19eb8cd5befee69e7`，不会跟随 main 自动升级。也可在添加组件前切换 [Gitee RTT](https://gitee.com/nzxhg/RTT)：
-
-```cmake
-set(STM_LOG_RTT_GIT_REPOSITORY "https://gitee.com/nzxhg/RTT.git" CACHE STRING "")
-```
-
-首次自动下载需要 Git 和网络；`STM_LOG_RTT_FETCH=OFF` 可禁止自动下载，缺少本地依赖会明确报错。离线可设置 `STM_LOG_RTT_SOURCE_DIR` 为 RTT 仓库根目录的绝对路径；自动解析也支持标准 `FETCHCONTENT_SOURCE_DIR_SEGGER_RTT` 覆盖。
-
-组件自动编译 `RTT/SEGGER_RTT.c` 并传递头文件及链接依赖，不添加 printf 重定向、示例或可选汇编文件。默认使用仓库的 `Config/SEGGER_RTT_Conf.h`；可通过 `STM_LOG_RTT_CONFIG_DIR` 指定包含自定义配置头的目录。RTT 源码保留其自身许可证。
-
-启用依赖只完成构建接入，应用仍须初始化 RTT 并绑定输出回调：
-
-```c
-#include "SEGGER_RTT.h"
-
-static void rtt_output(const char *buf, uint16_t len) {
-    SEGGER_RTT_Write(0, buf, len);
+extern UART_HandleTypeDef huart1;
+static void uart_output(const char *data, uint16_t len)
+{
+    // 诊断输出失败时可以计数，但不要在此回调中再次记录日志。
+    (void)HAL_UART_Transmit(&huart1, (uint8_t *)data, len, 100U);
 }
 
-SEGGER_RTT_Init();
-stm_log_init_output(rtt_output, STM_LOG_LVL_INFO);     /* v2.3.0+：一步完成 init + 切 RTT */
-/* 旧写法仍可用：stm_log_init(NULL, STM_LOG_LVL_INFO); stm_log_set_output(rtt_output); */
+// HAL/时钟/UART 初始化完成后：
+stm_log_set_tick(HAL_GetTick);
+stm_log_init_output(uart_output, STM_LOG_LVL_INFO);
 ```
 
-### 切到 SWO（ST-Link + VSCode Cortex-Debug）
+RTT 只替换输出函数，保留相同初始化：
 
 ```c
-static void swo_output(const char *buf, uint16_t len) {
-    for (uint16_t i = 0; i < len; i++) {
-        ITM_SendChar((uint8_t)buf[i]);
-    }
+static void rtt_output(const char *data, uint16_t len)
+{
+    SEGGER_RTT_Write(0, data, len);
 }
-
-stm_log_init_output(swo_output, STM_LOG_LVL_INFO);     /* v2.3.0+ */
+stm_log_set_tick(HAL_GetTick); // HAL 仍只在应用层；非 STM32 使用自己的时钟。
+stm_log_init_output(rtt_output, STM_LOG_LVL_INFO);
 ```
 
-> CubeMX 要配 PB3 = `SYS_SWO`，Debug 选 `Trace Asynchronous Sw`。
+不能在 ISR 中调用阻塞日志；异步 DMA 输出必须先复制到自有缓冲，不能直接保存日志栈地址。
+本库不报告输出硬件错误，重试/丢弃策略由输出回调负责。
 
-### HEX buffer
+## 过滤与开关
 
 ```c
-uint8_t rx_buf[32] = { /* ... */ };
-
-void on_rx_done(uint8_t *buf, uint16_t len) {
-    LOG_HEXD("uart", buf, len);                         /* DEBUG 级 */
-}
+LOGI("app", "version=%s", "1.0.0");
+stm_log_set_tag_level("at_comms", STM_LOG_LVL_VERBOSE);
+LOGV("at_comms", "<< AT");
+stm_log_set_tag_level("at_comms", STM_LOG_LVL_NONE);
+stm_log_unset_tag_level("at_comms"); // 恢复全局级别。
+LOG_HEX("rx", data, length);
 ```
 
-输出：
+tag 指针须保持有效至 unset（推荐字符串常量）。表满时忽略新增项。
+长文本、长 tag、长 HEX 行安全截断；HEX 行被截断时不保证展示该行全部字节。
 
-```
-D (1234) uart: 0x[ 01 02 03 04 05 06 07 08  09 0a 0b 0c 0d 0e 0f 10 ]
-D (1235) uart: 0x[ 11 12 13 ... ]
-```
-
-### 早期 log（`stm_log_init` 之前）
-
-```c
-int main(void) {
-    HAL_Init();
-    LOGI("boot", "step 1: HAL_Init done");              /* ← 进 ring buffer */
-
-    SystemClock_Config();
-    LOGI("boot", "step 2: clock=%lu MHz", SystemCoreClock);
-
-    MX_USART1_UART_Init();
-
-    stm_log_init(&huart1, STM_LOG_LVL_INFO);            /* ← 这一步自动 flush ring buffer → UART */
-    LOGI("main", "step 3: log system up");
-}
-```
-
-输出（无 log 丢失）：
-
-```
-I (1234) boot: step 1: HAL_Init done
-I (1234) boot: step 2: clock=168 MHz
-I (1234) main: step 3: log system up
-```
-
-### Release 关闭所有 log
-
-```c
-/* stm_log_config.h 或 CMake -D */
-#define STM_LOG_ENABLED   0
-```
-
-LOGx 预处理后变 `do {} while (0)`，vsnprintf 调用 + 格式字符串全不进 binary。
-
-## CMake 集成
-
-仓库地址（GitHub / Gitee 二选一，内容与 tag 完全同步）：
-
-- GitHub：`https://github.com/NingZiXi/stm_log.git`
-- Gitee：`https://gitee.com/nzxhg/stm_log.git`
-
-### 方式 A：FetchContent（推荐，联网环境）
-
-工程根 `CMakeLists.txt`：
-
-```cmake
-include(FetchContent)
-
-FetchContent_Declare(
-    stm_log
-    # 任选一个仓库地址（GitHub / Gitee 内容同步）
-    GIT_REPOSITORY https://github.com/NingZiXi/stm_log.git
-    # GIT_REPOSITORY https://gitee.com/nzxhg/stm_log.git           /* 国内 / 代理环境 */
-    GIT_TAG        v2.2.0
-)
-FetchContent_MakeAvailable(stm_log)
-
-target_link_libraries(${YOUR_TARGET} stm_log)                        /* stm_log 自动传递 stm32cubemx */
-```
-
-首次 build 自动 clone 到 `<build>/_deps/stm_log-src/`，版本锁定 `v2.2.0`。离线 / 代理环境不适用。
-
-### 方式 B：手动 git clone（离线 / 代理环境）
-
-```bash
-mkdir -p Lib
-
-# 任选一个仓库地址（GitHub / Gitee 内容同步）
-git clone https://github.com/NingZiXi/stm_log Lib/stm_log
-# git clone https://gitee.com/nzxhg/stm_log Lib/stm_log            /* 国内 / 代理环境 */
-
-cd Lib/stm_log && git checkout v2.2.0
-```
-
-工程根 `CMakeLists.txt`：
+总开关是 `STM_LOG_ENABLED`，与 Debug/Release 无强制绑定：
 
 ```cmake
 add_subdirectory(Lib/stm_log)
-
-target_link_libraries(${YOUR_TARGET} stm_log)                        /* stm_log 自动传递 stm32cubemx */
+target_compile_definitions(stm_log PUBLIC STM_LOG_ENABLED=1)
+target_link_libraries(your_app PRIVATE stm_log)
 ```
 
-### Release build 关 log
+同一个 App 的 `target_link_libraries` 必须统一使用 plain 或 keyword 形式；
+CubeMX 已使用 plain 的工程应写 `target_link_libraries(your_app stm_log)`。
 
-```cmake
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    target_compile_definitions(${YOUR_TARGET} PRIVATE STM_LOG_ENABLED=0)
-endif()
+设为 0 时 LOGx 宏不求值参数，直接调用日志函数也不输出。
+所有调用方与库源码必须使用相同的配置宏；PUBLIC 可自动传递。
+
+## 可选 RTT 依赖
+
+保留 v2.4.0 的 `STM_LOG_WITH_RTT=ON`：优先复用已有 `segger_rtt` target，
+其次使用 `STM_LOG_RTT_SOURCE_DIR` 或同级 RTT/segger_rtt 源码，最后按固定提交拉取。
+`STM_LOG_RTT_FETCH=OFF` 禁止下载；仓库镜像和配置目录分别用
+`STM_LOG_RTT_GIT_REPOSITORY`、`STM_LOG_RTT_CONFIG_DIR` 指定。
+该选项只提供链接依赖，不自动配置输出；应用仍需传入自己的 RTT 回调。
+默认 OFF，主机和其他平台无需 RTT。
+
+## 配置与运行约束
+
+| 宏 | 默认 | 用途 |
+| --- | --- | --- |
+| STM_LOG_ENABLED | 1 | 日志总开关 |
+| STM_LOG_BUFFER_SIZE | 128 | 单行缓冲，16～65533 字节，含 NUL |
+| STM_LOG_USE_COLORS | 1 | ANSI 颜色 |
+| STM_LOG_LEVEL_DEFAULT | STM_LOG_LVL_INFO | 默认级别 |
+| STM_LOG_MAX_TAGS | 16 | tag 表容量，1～255 |
+| STM_LOG_INCLUDE_FILE_LINE | 0 | 文件名和行号 |
+| STM_LOG_EARLY_BUFFER_SIZE | 1024 | 未绑定输出时缓存；0 表示丢弃 |
+| STM_LOG_AUTO_NEWLINE | 1 | 自动 CRLF |
+| STM_LOG_USE_MUTEX | 0 | 保留旧版可选 FreeRTOS 配置路径 |
+
+`stm_log_set_output(NULL)` 暂停输出，按早期缓冲策略处理后续日志；
+再次绑定非空输出时刷出缓存。早期缓冲满时丢弃新日志，不覆盖旧记录。
+init_output 设置输出和全局级别，不清空已有 tag 配置或时间戳回调。
+
+默认只保证单调用者使用。多任务需要应用串行化所有日志与配置操作。
+旧 `STM_LOG_USE_MUTEX=1` 只保留部分配置操作的锁，并不是完整线程安全保证；
+会引入 FreeRTOS/动态锁，不能用于无 RTOS 配置。输出和时钟回调均禁止重入。
+
+## 从旧版迁移
+
+- 删除 `STM_LOG_HAL_HEADER` 和 `STM_LOG_LINK_CUBEMX` 配置，它们不再使用。
+- `stm_log_init(&huart, level)` 改为应用 UART 回调 + `stm_log_init_output(callback, level)`。
+- 继续使用原有 RTT 输出回调；加 `stm_log_set_tick(HAL_GetTick)` 即可保留时间戳。
+- `set_output(NULL)` 不再恢复默认 UART；要恢复 UART，显式传回应用的 UART 回调。
+- 核心 CMake 不传递 HAL；真正使用 HAL 的应用/适配层需自行链接。
+- v3.0.0 是破坏性接口变更；旧标签保持不变。主机测试和集成构建已通过，最新硬件回归尚未完成。
+
+## 主机测试
+
+无需 MCU SDK、HAL 替身或设备：
+
+```sh
+cmake -S tests -B build/tests -G Ninja
+cmake --build build/tests
+ctest --test-dir build/tests --output-on-failure
 ```
 
-### 非标准 CubeMX 工程（关掉自动 stm32cubemx 链接）
+需要 C11 和 C++17 编译器。覆盖默认、无颜色/换行/早期缓冲、文件行号、全关、小缓冲，
+以及 C++ 链接和完整示例。旧 MinGW 测试显式启用 C99 printf 实现。
+这些软件检查不能代替 UART/RTT 实机验证。
 
-默认情况下 `stm_log` 会自动 link `stm32cubemx` target。如果你的工程 HAL target 命名不同、或
-有自定义 HAL 兼容层，关掉自动链接并自己 link：
+## 许可
 
-```cmake
-set(STM_LOG_LINK_CUBEMX OFF CACHE BOOL "" FORCE)
-add_subdirectory(Lib/stm_log)
-target_link_libraries(${YOUR_TARGET} stm_log your_hal_target)
-```
-
-## 编译期配置
-
-### `STM_LOG_HAL_HEADER` — STM32 HAL 头文件
-
-`stm_log` 依赖 STM32 HAL 提供 `UART_HandleTypeDef` / `HAL_UART_Transmit` / `HAL_GetTick`。
-不同 STM32 系列的 HAL 头文件名不同，工程中通过 `STM_LOG_HAL_HEADER` 指定：
-
-| STM32 家族 | `STM_LOG_HAL_HEADER` |
-|---|---|
-| STM32F0  | `"stm32f0xx_hal.h"`  |
-| STM32F1  | `"stm32f1xx_hal.h"`  |
-| STM32F2  | `"stm32f2xx_hal.h"`  |
-| STM32F3  | `"stm32f3xx_hal.h"`  |
-| STM32F4  | `"stm32f4xx_hal.h"`  |  ← 默认
-| STM32F7  | `"stm32f7xx_hal.h"`  |
-| STM32G0  | `"stm32g0xx_hal.h"`  |
-| STM32G4  | `"stm32g4xx_hal.h"`  |
-| STM32H5  | `"stm32h5xx_hal.h"`  |
-| STM32H7  | `"stm32h7xx_hal.h"`  |
-| STM32L0  | `"stm32l0xx_hal.h"`  |
-| STM32L1  | `"stm32l1xx_hal.h"`  |
-| STM32L4  | `"stm32l4xx_hal.h"`  |
-| STM32L5  | `"stm32l5xx_hal.h"`  |
-| STM32U5  | `"stm32u5xx_hal.h"`  |
-| STM32WB  | `"stm32wbxx_hal.h"`  |
-| STM32WL  | `"stm32wlxx_hal.h"`  |
-| STM32C0  | `"stm32c0xx_hal.h"`  |
-
-工程 CMake 中通过 `target_compile_definitions` 注入（注意 CMake 转义引号）：
-
-```cmake
-# STM32G0 工程示例
-target_compile_definitions(stm_log PUBLIC
-    "STM_LOG_HAL_HEADER=\"stm32g0xx_hal.h\""
-)
-```
-
-或者用 `set` + `FetchContent_MakeAvailable` 之前设定：
-
-```cmake
-set(STM_LOG_HAL_HEADER "stm32g0xx_hal.h" CACHE STRING "" FORCE)
-FetchContent_MakeAvailable(stm_log)
-```
-
-> 为什么要转义引号：`STM_LOG_HAL_HEADER` 在头文件中通过 `#include STM_LOG_HAL_HEADER`
-> 展开为 `#include "stm32g0xx_hal.h"`，所以宏的值必须是带引号的字符串字面量。
-> CMake 中 `target_compile_definitions` 会剥一层引号，所以传入 `"STM_LOG_HAL_HEADER=\"stm32g0xx_hal.h\""`。
-> 生成的编译命令里宏的实际定义为 `STM_LOG_HAL_HEADER="stm32g0xx_hal.h"`。
-
-### `stm_log_config.h`
-
-| 宏 | 默认 | 含义 |
-|---|---|---|
-| `STM_LOG_ENABLED`             | 1                    | 0: 所有 LOGx 空宏（Release 用） |
-| `STM_LOG_BUFFER_SIZE`         | 128                  | 单条 log 最大字节（vsnprintf 截断） |
-| `STM_LOG_USE_COLORS`          | 1                    | 1: ANSI 颜色；0: 关闭 |
-| `STM_LOG_LEVEL_DEFAULT`       | `STM_LOG_LVL_INFO`   | stm_log_init 之前的默认级别 |
-| `STM_LOG_MAX_TAGS`            | 16                   | per-tag 级别表最大条目数 |
-| `STM_LOG_INCLUDE_FILE_LINE`   | 0                    | 1: LOGx 加 `[file:line]`；0: 关闭 |
-| `STM_LOG_EARLY_BUFFER_SIZE`   | 1024                 | 早期 log ring buffer 字节数；0 = 禁用 |
-| `STM_LOG_USE_MUTEX`           | 0                    | 1: FreeRTOS recursive mutex 保护共享状态（多任务）；0: 裸机 / 单任务 |
-| `STM_LOG_AUTO_NEWLINE`        | 1                    | 1: emit() 末尾自动追 `\r\n`；0: 关闭（fmt 自加 `\n` 或后端自带换行） |
-
-## 约束
-
-- **不能在中断服务例程里调 LOGx**（v2.x 阻塞输出）
-- **多任务并发调 LOGx**：`STM_LOG_USE_MUTEX=1` 时安全；写操作（set_*）加锁，读路径（LOGx / get_tag_level）不加锁以保性能，容忍极小概率读到 s_tags 撕裂值（漏一条 log，不 crash）
-- **STM_LOG_USE_MUTEX=1**：`stm_log_init()` 必须在 FreeRTOS scheduler 启动后调用（mutex 用 heap 分配）
-- 单 UART 默认绑定；通过 `stm_log_set_output()` 运行时切换
-- per-tag 表大小由 `STM_LOG_MAX_TAGS` 编译期固定
-- 早期 log ring buffer 由 `STM_LOG_EARLY_BUFFER_SIZE` 编译期固定
-- 依赖 STM32 HAL（通过 `STM_LOG_HAL_HEADER` 指定；默认 `stm32f4xx_hal.h`）
-  需要 `HAL_UART_Transmit` / `HAL_GetTick`
-
-## License
-
-MIT
+保留原有 [MIT License](LICENSE) 和版权声明。
