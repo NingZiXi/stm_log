@@ -30,6 +30,7 @@ if(STM_LOG_WITH_RTT)
             FetchContent_Declare(segger_rtt
                 GIT_REPOSITORY "${STM_LOG_RTT_GIT_REPOSITORY}"
                 GIT_TAG d6075232fb5a7127c36548f19eb8cd5befee69e7
+                SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../segger_rtt"
             )
             FetchContent_MakeAvailable(segger_rtt)
             set(_stm_log_rtt_source "${segger_rtt_SOURCE_DIR}")

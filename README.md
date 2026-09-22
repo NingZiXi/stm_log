@@ -1,6 +1,6 @@
 # stm_log
 
-v3.0.0：平台无关的分级日志组件。核心只依赖标准 C，不包含 HAL/CMSIS 头文件，不初始化 UART，
+v3.0.1：平台无关的分级日志组件。核心只依赖标准 C，不包含 HAL/CMSIS 头文件，不初始化 UART，
 默认不链接 CubeMX、RTT 或 RTOS。UART、RTT、SWO、文件都通过同一个输出回调接入。
 
 保留五级日志、tag 过滤、HEX、颜色、可选文件行号、早期缓冲和总开关。
@@ -95,6 +95,20 @@ CubeMX 已使用 plain 的工程应写 `target_link_libraries(your_app stm_log)`
 
 保留 v2.4.0 的 `STM_LOG_WITH_RTT=ON`：优先复用已有 `segger_rtt` target，
 其次使用 `STM_LOG_RTT_SOURCE_DIR` 或同级 RTT/segger_rtt 源码，最后按固定提交拉取。
+从 v3.0.1 起，自动拉取的源码固定放在 `stm_log` 同级的 `segger_rtt/`，不再放入
+`build/_deps/segger_rtt-src`。推荐布局如下：
+
+```text
+工程/
+├── Lib/
+│   ├── stm_log/
+│   └── segger_rtt/      # stm_log 自动下载的 RTT 源码
+└── build/              # 编译产物与下载管理文件
+```
+
+双核工程的编译目录也可以位于 `CM7/build/`；RTT 源码仍与 `Lib/stm_log/` 同级。
+清理编译目录不会删除 `Lib/segger_rtt/`，后续配置会优先复用它。
+
 `STM_LOG_RTT_FETCH=OFF` 禁止下载；仓库镜像和配置目录分别用
 `STM_LOG_RTT_GIT_REPOSITORY`、`STM_LOG_RTT_CONFIG_DIR` 指定。
 该选项只提供链接依赖，不自动配置输出；应用仍需传入自己的 RTT 回调。
