@@ -4,6 +4,8 @@ add_library(stm_log STATIC stm_log.c)
 target_include_directories(stm_log PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(stm_log PUBLIC c_std_11)
 
+set(STM_LOG_RTT_UP_BUFFER_SIZE "" CACHE STRING "Override the RTT target-to-host up-buffer size in bytes")
+
 # 保留 v2.4.0 的显式 RTT 依赖选项；默认关闭，不影响纯 C 核心。
 option(STM_LOG_WITH_RTT "Provide SEGGER RTT as a transitive logging dependency" OFF)
 if(STM_LOG_WITH_RTT)
@@ -57,4 +59,21 @@ if(STM_LOG_WITH_RTT)
         unset(_candidate)
     endif()
     target_link_libraries(stm_log PUBLIC segger_rtt)
+endif()
+
+# Optional RTT output-buffer sizing for verbose diagnostics. The RTT target
+# must be compiled from source so this definition reaches SEGGER_RTT.c.
+if(STM_LOG_RTT_UP_BUFFER_SIZE)
+    if(NOT STM_LOG_RTT_UP_BUFFER_SIZE MATCHES "^[1-9][0-9]*$")
+        message(FATAL_ERROR "STM_LOG_RTT_UP_BUFFER_SIZE must be a positive integer")
+    endif()
+    if(NOT TARGET segger_rtt)
+        message(FATAL_ERROR "STM_LOG_RTT_UP_BUFFER_SIZE requires an RTT source target")
+    endif()
+    get_target_property(_stm_log_rtt_imported segger_rtt IMPORTED)
+    if(_stm_log_rtt_imported)
+        message(FATAL_ERROR "Cannot resize an imported segger_rtt target; build RTT from source")
+    endif()
+    target_compile_definitions(segger_rtt PRIVATE
+        BUFFER_SIZE_UP=${STM_LOG_RTT_UP_BUFFER_SIZE})
 endif()

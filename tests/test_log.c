@@ -3,6 +3,7 @@
  */
 #include "stm_log.h"
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -67,7 +68,20 @@ int main(void)
     CHECK(calls == 1);
     stm_log_unset_tag_level("at_comms");
     CHECK(stm_log_get_tag_level("at_comms") == STM_LOG_LVL_INFO);
+#if STM_LOG_BUFFER_SIZE >= 96
     clear();
+    stm_log(STM_LOG_LVL_INFO, "format", "u32=%u s32=%d x32=%X",
+            (unsigned)UINT32_MAX, (int)INT32_MIN, (unsigned)UINT32_MAX);
+    CHECK(strstr(captured, "u32=4294967295 s32=-2147483648 x32=FFFFFFFF"));
+    clear();
+    stm_log(STM_LOG_LVL_INFO, "format", "u64=%llu s64=%lld x64=%llX",
+            (unsigned long long)UINT64_MAX, (long long)INT64_MIN,
+            (unsigned long long)UINT64_MAX);
+    CHECK(strstr(captured,
+          "u64=18446744073709551615 s64=-9223372036854775808 x64=FFFFFFFFFFFFFFFF"));
+    clear();
+#endif
+    clear(); // Isolate long-message assertions from the tag-level test output.
     char long_text[1024]; memset(long_text, 'x', sizeof long_text - 1); long_text[1023] = 0;
     stm_log(STM_LOG_LVL_INFO, long_text, "%s", long_text);
     CHECK(calls == 1 && used <= STM_LOG_BUFFER_SIZE + 1U);

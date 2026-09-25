@@ -162,3 +162,24 @@ ctest --test-dir build/tests --output-on-failure
 ## 许可
 
 保留原有 [MIT License](LICENSE) 和版权声明。
+
+## 64-bit integer output and RTT sizing
+
+The formatter passes the format string and arguments directly to the platform
+`vsnprintf`, preserving standard length modifiers such as `%llu`, `%lld`, and
+`%llX`. The host test suite checks 32-bit and 64-bit boundary values, plus long
+message truncation. The target C library must provide those standard conversions.
+
+For verbose RTT sessions, a source-built `segger_rtt` target can use a larger
+up-channel buffer without changing the RTT source:
+
+```cmake
+set(STM_LOG_WITH_RTT ON)
+set(STM_LOG_RTT_UP_BUFFER_SIZE 8192)
+add_subdirectory(Lib/stm_log)
+```
+
+The setting maps to SEGGER RTT's `BUFFER_SIZE_UP` compile definition. It requires
+RTT to be built from source; imported/prebuilt RTT targets are rejected when this
+option is set. Choose a size that fits the target's RAM budget and expected host
+polling interval.

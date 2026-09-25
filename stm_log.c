@@ -6,6 +6,10 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <inttypes.h>
+#include <ctype.h>
 
 _Static_assert(STM_LOG_BUFFER_SIZE >= 16 && STM_LOG_BUFFER_SIZE <= 65533, "invalid log buffer size");
 _Static_assert(STM_LOG_EARLY_BUFFER_SIZE >= 0 && STM_LOG_EARLY_BUFFER_SIZE <= 65535, "invalid early buffer size");
@@ -126,6 +130,261 @@ static stm_log_level_t resolve_level(const char *tag) {
     return s_level;
 }
 
+typedef struct {
+    char *buf;
+    size_t cap;
+    size_t total;
+} stm_fmt_out_t;
+
+typedef enum {
+    STM_LEN_NONE,
+    STM_LEN_HH,
+    STM_LEN_H,
+    STM_LEN_L,
+    STM_LEN_LL,
+    STM_LEN_J,
+    STM_LEN_Z,
+    STM_LEN_T,
+    STM_LEN_CAP_L,
+} stm_fmt_len_t;
+
+static void fmt_putc(stm_fmt_out_t *out, char ch)
+{
+    if (out->cap > 0U && out->total + 1U < out->cap) {
+        out->buf[out->total] = ch;
+    }
+    out->total++;
+}
+
+static void fmt_repeat(stm_fmt_out_t *out, char ch, size_t count)
+{
+    while (count-- > 0U) fmt_putc(out, ch);
+}
+
+static void fmt_write(stm_fmt_out_t *out, const char *text, size_t len)
+{
+    for (size_t i = 0; i < len; ++i) fmt_putc(out, text[i]);
+}
+
+static uint64_t fmt_unsigned_arg(va_list *ap, stm_fmt_len_t len)
+{
+    switch (len) {
+    case STM_LEN_HH: return (unsigned char)va_arg(*ap, unsigned int);
+    case STM_LEN_H:  return (unsigned short)va_arg(*ap, unsigned int);
+    case STM_LEN_L:  return va_arg(*ap, unsigned long);
+    case STM_LEN_LL: return va_arg(*ap, unsigned long long);
+    case STM_LEN_J:  return va_arg(*ap, uintmax_t);
+    case STM_LEN_Z:  return va_arg(*ap, size_t);
+    case STM_LEN_T:  return (uint64_t)va_arg(*ap, ptrdiff_t);
+    default:         return va_arg(*ap, unsigned int);
+    }
+}
+
+static int64_t fmt_signed_arg(va_list *ap, stm_fmt_len_t len)
+{
+    switch (len) {
+    case STM_LEN_HH: return (signed char)va_arg(*ap, int);
+    case STM_LEN_H:  return (short)va_arg(*ap, int);
+    case STM_LEN_L:  return va_arg(*ap, long);
+    case STM_LEN_LL: return va_arg(*ap, long long);
+    case STM_LEN_J:  return va_arg(*ap, intmax_t);
+    case STM_LEN_Z:  return (int64_t)va_arg(*ap, ptrdiff_t);
+    case STM_LEN_T:  return (int64_t)va_arg(*ap, ptrdiff_t);
+    default:         return va_arg(*ap, int);
+    }
+}
+
+static void fmt_integer(stm_fmt_out_t *out, uint64_t value, unsigned base,
+                        int uppercase, int negative, int show_plus,
+                        int space_sign, int alternate, int left, int zero,
+                        int width, int precision)
+{
+    char digits[64];
+    const char *alphabet = uppercase ? "0123456789ABCDEF" : "0123456789abcdef";
+    size_t ndigits = 0U;
+    if (value != 0U || precision != 0) {
+        do {
+            digits[ndigits++] = alphabet[value % base];
+            value /= base;
+        } while (value != 0U);
+    }
+
+    char sign = negative ? '-' : (show_plus ? '+' : (space_sign ? ' ' : '\0'));
+    char prefix[2];
+    size_t prefix_len = 0U;
+    if (alternate && base == 16U && ndigits > 0U) {
+        prefix[0] = '0'; prefix[1] = uppercase ? 'X' : 'x'; prefix_len = 2U;
+    } else if (alternate && base == 8U && (ndigits == 0U || digits[ndigits - 1U] != '0')) {
+        prefix[0] = '0'; prefix_len = 1U;
+    }
+
+    size_t leading_zeroes = 0U;
+    if (precision >= 0 && (size_t)precision > ndigits) leading_zeroes = (size_t)precision - ndigits;
+    size_t core = (sign ? 1U : 0U) + prefix_len + leading_zeroes + ndigits;
+    size_t padding = width > 0 && (size_t)width > core ? (size_t)width - core : 0U;
+    if (zero && !left && precision < 0) {
+        leading_zeroes += padding;
+        padding = 0U;
+    }
+    if (!left) fmt_repeat(out, ' ', padding);
+    if (sign) fmt_putc(out, sign);
+    fmt_write(out, prefix, prefix_len);
+    fmt_repeat(out, '0', leading_zeroes);
+    while (ndigits > 0U) fmt_putc(out, digits[--ndigits]);
+    if (left) fmt_repeat(out, ' ', padding);
+}
+
+/*
+ * Small integer-capable formatter used instead of relying on newlib-nano's
+ * optional long-long printf support. Floating-point conversions are delegated
+ * one conversion at a time to the platform snprintf, preserving existing API
+ * behaviour when the target C library enables them.
+ */
+static int stm_vsnprintf(char *buf, size_t cap, const char *fmt, va_list input)
+{
+    stm_fmt_out_t out = { buf, cap, 0U };
+    va_list ap;
+    va_copy(ap, input);
+
+    while (*fmt) {
+        if (*fmt != '%') {
+            fmt_putc(&out, *fmt++);
+            continue;
+        }
+        ++fmt;
+        if (*fmt == '%') {
+            fmt_putc(&out, *fmt++);
+            continue;
+        }
+
+        int left = 0, show_plus = 0, space_sign = 0, alternate = 0, zero = 0;
+        for (;;) {
+            if (*fmt == '-') left = 1;
+            else if (*fmt == '+') show_plus = 1;
+            else if (*fmt == ' ') space_sign = 1;
+            else if (*fmt == '#') alternate = 1;
+            else if (*fmt == '0') zero = 1;
+            else break;
+            ++fmt;
+        }
+
+        int width = -1;
+        if (*fmt == '*') {
+            width = va_arg(ap, int);
+            ++fmt;
+            if (width < 0) { left = 1; width = -width; }
+        } else if (isdigit((unsigned char)*fmt)) {
+            width = 0;
+            while (isdigit((unsigned char)*fmt)) width = width * 10 + (*fmt++ - '0');
+        }
+
+        int precision = -1;
+        if (*fmt == '.') {
+            ++fmt;
+            if (*fmt == '*') {
+                precision = va_arg(ap, int);
+                ++fmt;
+                if (precision < 0) precision = -1;
+            } else {
+                precision = 0;
+                while (isdigit((unsigned char)*fmt)) precision = precision * 10 + (*fmt++ - '0');
+            }
+        }
+
+        stm_fmt_len_t len = STM_LEN_NONE;
+        if (fmt[0] == 'h' && fmt[1] == 'h') { len = STM_LEN_HH; fmt += 2; }
+        else if (*fmt == 'h') { len = STM_LEN_H; ++fmt; }
+        else if (fmt[0] == 'l' && fmt[1] == 'l') { len = STM_LEN_LL; fmt += 2; }
+        else if (*fmt == 'l') { len = STM_LEN_L; ++fmt; }
+        else if (*fmt == 'j') { len = STM_LEN_J; ++fmt; }
+        else if (*fmt == 'z') { len = STM_LEN_Z; ++fmt; }
+        else if (*fmt == 't') { len = STM_LEN_T; ++fmt; }
+        else if (*fmt == 'L') { len = STM_LEN_CAP_L; ++fmt; }
+
+        char conv = *fmt ? *fmt++ : '\0';
+        switch (conv) {
+        case 'd':
+        case 'i': {
+            int64_t sval = fmt_signed_arg(&ap, len);
+            uint64_t magnitude = sval < 0 ? 0U - (uint64_t)sval : (uint64_t)sval;
+            fmt_integer(&out, magnitude, 10U, 0, sval < 0, show_plus, space_sign,
+                        0, left, zero, width, precision);
+            break;
+        }
+        case 'u': case 'o': case 'x': case 'X': {
+            unsigned base = conv == 'o' ? 8U : ((conv == 'x' || conv == 'X') ? 16U : 10U);
+            fmt_integer(&out, fmt_unsigned_arg(&ap, len), base, conv == 'X', 0, 0, 0,
+                        alternate, left, zero, width, precision);
+            break;
+        }
+        case 'p': {
+            uintptr_t value = (uintptr_t)va_arg(ap, void *);
+            fmt_integer(&out, (uint64_t)value, 16U, 0, 0, 0, 0, 1,
+                        left, zero, width, precision);
+            break;
+        }
+        case 'c': {
+            char ch = (char)va_arg(ap, int);
+            size_t padding = width > 1 ? (size_t)width - 1U : 0U;
+            if (!left) fmt_repeat(&out, ' ', padding);
+            fmt_putc(&out, ch);
+            if (left) fmt_repeat(&out, ' ', padding);
+            break;
+        }
+        case 's': {
+            const char *text = va_arg(ap, const char *);
+            if (!text) text = "(null)";
+            size_t n = strlen(text);
+            if (precision >= 0 && (size_t)precision < n) n = (size_t)precision;
+            size_t padding = width > 0 && (size_t)width > n ? (size_t)width - n : 0U;
+            if (!left) fmt_repeat(&out, ' ', padding);
+            fmt_write(&out, text, n);
+            if (left) fmt_repeat(&out, ' ', padding);
+            break;
+        }
+        case 'f': case 'F': case 'e': case 'E': case 'g': case 'G': case 'a': case 'A': {
+            char spec[48];
+            char temp[128];
+            size_t pos = 0U;
+            spec[pos++] = '%';
+            if (left) spec[pos++] = '-';
+            if (show_plus) spec[pos++] = '+';
+            if (space_sign) spec[pos++] = ' ';
+            if (alternate) spec[pos++] = '#';
+            if (zero) spec[pos++] = '0';
+            if (width >= 0) pos += (size_t)snprintf(spec + pos, sizeof(spec) - pos, "%d", width);
+            if (precision >= 0) pos += (size_t)snprintf(spec + pos, sizeof(spec) - pos, ".%d", precision);
+            if (len == STM_LEN_CAP_L) spec[pos++] = 'L';
+            spec[pos++] = conv; spec[pos] = '\0';
+            int n = len == STM_LEN_CAP_L
+                ? snprintf(temp, sizeof(temp), spec, va_arg(ap, long double))
+                : snprintf(temp, sizeof(temp), spec, va_arg(ap, double));
+            if (n > 0) {
+                size_t actual = (size_t)n < sizeof(temp) ? (size_t)n : sizeof(temp) - 1U;
+                fmt_write(&out, temp, actual);
+            }
+            break;
+        }
+        case '\0':
+            fmt_putc(&out, '%');
+            goto done;
+        default:
+            /* Keep unsupported conversions visible without consuming an argument. */
+            fmt_putc(&out, '%');
+            fmt_putc(&out, conv);
+            break;
+        }
+    }
+
+done:
+    va_end(ap);
+    if (cap > 0U) {
+        size_t end = out.total < cap - 1U ? out.total : cap - 1U;
+        buf[end] = '\0';
+    }
+    return out.total > (size_t)INT32_MAX ? INT32_MAX : (int)out.total;
+}
+
 /**
  * @brief snprintf + 截断处理，统一添加 level / tag / 可选 [file:line] 前缀
  *
@@ -137,7 +396,7 @@ static void append_format(char *buf, size_t cap, size_t *used, const char *fmt, 
     if (*used >= cap - 1U) return;
     va_list ap;
     va_start(ap, fmt);
-    int n = vsnprintf(buf + *used, cap - *used, fmt, ap);
+    int n = stm_vsnprintf(buf + *used, cap - *used, fmt, ap);
     va_end(ap);
     if (n > 0) *used += (size_t)n < cap - *used ? (size_t)n : cap - *used - 1U;
 }
@@ -165,7 +424,7 @@ static int format_with_prefix(char *buf, size_t cap, stm_log_level_t level,
 #endif
     append_format(buf, cap, &used, ": ");
     if (used < cap - 1U) {
-        int n = vsnprintf(buf + used, cap - used, fmt, ap);
+        int n = stm_vsnprintf(buf + used, cap - used, fmt, ap);
         if (n < 0) return -1;
         used += (size_t)n < cap - used ? (size_t)n : cap - used - 1U;
     }
